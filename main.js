@@ -53,8 +53,7 @@ const server = http.createServer(async (req, res) => {
 	if (urlAry[1] == 'measure') {
 		const measure = urlAry[2];
 		// Set up the library
-		const elmFile = JSON.parse(fs.readFileSync(path.join(__dirname, version, 'cql', measure+'.json'), 'utf8'));
-		//const measureLib = new cql.Library(elmFile, new cql.Repository(fhirHelpersLib));
+		const elmFile = JSON.parse(fs.readFileSync(path.join(__dirname, 'cql', version, measure+'.json'), 'utf8'));
 		const measureLib = new cql.Library(elmFile, fhirHelpersRep);
 		// Extract the value sets from the ELM
 		let valueSets = [];
