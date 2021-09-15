@@ -6,6 +6,8 @@ const cql = require('cql-execution');
 const cqlfhir = require('cql-exec-fhir');
 const cqlvsac = require('cql-exec-vsac');
 
+const debug = true;
+
 // TO DO: There is supposed to be a way to set this within the environment so it
 //        doesn't have to be passed as an argument to the script. Investigate and
 //        document how to do this.
@@ -17,78 +19,110 @@ if ((umlsApiKey==undefined)||(umlsApiKey==null)) {
 	console.error(errorMsg);
 	return;
 }
-// JLD: Hardcode this for now. In the future, it should probably be obtained from
+
+// TO DO: Hardcode this for now. In the future, it should probably be obtained from
 //      the request URL.
 const version = 'r4';
 
+// TO DO: Should not use hardcoded paths
+const rootPath = 'C:\\Users\\garza\\Desktop\\opioid-cds-r4\\';
+const elmPath = rootPath + 'elm\\rec5redux\\';
+const fhirTermPath = rootPath + 'fhirterminology\\';
+const vsacCachePath = rootPath + 'vsac_cache\\';
+const vsacCachePathAndFilename = vsacCachePath + 'valueset-db.json';
 
-
-
-
-// Set up the library
-const fhirHelpersLib = {
-	FHIRHelpers: JSON.parse(fs.readFileSync(path.join(__dirname, 'fhir-helpers', version, 'FHIRHelpers.json'), 'utf8'))
-};
-const fhirHelpersRep = new cql.Repository(fhirHelpersLib);
-
-// Create the patient source
+// Create the patient source and fhir wrapper objects, which depend on the FHIR version
 let patientSource;
+let fhirWrapper;
 switch (version) {
-case 'dstu2': patientSource = cqlfhir.PatientSource.FHIRv102(); break;
-case 'stu3': patientSource = cqlfhir.PatientSource.FHIRv300(); break;
-case 'r4': patientSource = cqlfhir.PatientSource.FHIRv401(); break;
-default: patientSource = cqlfhir.PatientSource.FHIRv401(); break;
+case 'dstu2': patientSource = cqlfhir.PatientSource.FHIRv102(); fhirWrapper = cqlfhir.FHIRWrapper.FHIRv102(); break;
+case 'stu3': patientSource = cqlfhir.PatientSource.FHIRv300(); fhirWrapper = cqlfhir.FHIRWrapper.FHIRv300(); break;
+case 'r4': patientSource = cqlfhir.PatientSource.FHIRv401(); fhirWrapper = cqlfhir.FHIRWrapper.FHIRv401(); break;
+default: patientSource = cqlfhir.PatientSource.FHIRv401(); fhirWrapper = cqlfhir.FHIRWrapper.FHIRv401(); break;
 }
 
+// If there are ValueSets (possibly inside Bundles) in the FHIR terminology folder,
+// add those to the VSAC cache file before instantiating the VSAC code service.
+addFhirToVsacCache();
 // Set up the code service, loading from the cache if it exists
-const codeService = new cqlvsac.CodeService(path.join(__dirname, 'vsac_cache'), true);
+const codeService = new cqlvsac.CodeService(vsacCachePath, true);
 
-const hostname = '127.0.0.1';
-const port = 3000;
+// Instantiate message listener that will print messages logged from the CQL
+const logSourceOnTrace = true;
+const msgListener = new cql.ConsoleMessageListener(logSourceOnTrace);
 
 const server = http.createServer(async (req, res) => {
 	res.statusCode = 200;
 	res.setHeader('Content-Type', 'application/json');
-
-	console.log('\r\nRequest received:')
-	console.log('\tMethod: ' + req.method);
-	console.log('\tURL: ' + req.url);
-	console.log('\tHeaders: ' + JSON.stringify(req.headers));
 	let data = '';
 	for await (const chunk of req) {
 		data += chunk;
 	}
-	console.log(`\tBody: ${data}\r\n`);
+
+	if (debug) {
+		console.log('\r\nRequest received:')
+		console.log('\tMethod: ' + req.method);
+		console.log('\tURL: ' + req.url);
+		console.log('\tHeaders: ' + JSON.stringify(req.headers));
+		console.log(`\tBody: ${data}\r\n`);
+	}
+	
+	
+	// TO DO: Figure out a better way to do this
+	const contextMedications = JSON.parse(fs.readFileSync('C:\\Users\\garza\\Desktop\\opioid-cds-r4\\MedicationRequest_example-rec-05-mme-greater-than-fifty-context.json', 'utf8'));
+	let contextMedsArr = [];
+	if (Array.isArray(contextMedications)) {
+		contextMedications.forEach(oneMed => contextMedsArr.push(fhirWrapper.wrap(oneMed)));
+	}
+	else {
+		contextMedsArr.push(fhirWrapper.wrap(contextMedications));
+	}
+	const parameters = {
+	  ContextPrescriptions: contextMedsArr
+	};
+	
+	
 	
 	const urlAry = req.url.split('/');
 	if (urlAry[1] == 'measure') {
 		const measure = urlAry[2];
-		// Set up the library
-		const elmFile = JSON.parse(fs.readFileSync(path.join(__dirname, 'cql', version, measure+'.json'), 'utf8'));
-		const measureLib = new cql.Library(elmFile, fhirHelpersRep);
-		// Extract the value sets from the ELM
-		let valueSets = [];
-		if (elmFile.library && elmFile.library.valueSets && elmFile.library.valueSets.def) {
-			valueSets = elmFile.library.valueSets.def;
-		}
+		// Parse the ELM file for the measure into an object.
+		// TO DO: This assumes the file is in elmPath, and its name matches the
+		//   measure from the URL - not great. Consider re-thinking how this works.
+		const elmFile = JSON.parse(fs.readFileSync(elmPath + measure + '.json', 'utf8'));	
+		// Pass the ELM file object to getIncludedLibrariesObj() to get back an 
+		// object referencing the libraries included by the measure
+		let librariesObj = {};
+		getIncludedLibrariesObj(elmFile, librariesObj);
+		// Use librariesObj to make a repository object.
+		let includesRep = new cql.Repository(librariesObj)
+		// Use the ELM file for the measure and the repository of the included
+		// libraries to make a library for the measure.
+		const measureLib = new cql.Library(elmFile, includesRep);
 		// Load the bundle from the request body into the patientSource
 		const bundles = [];
 		const json = JSON.parse(data);
+		// TO DO: Validate that the request payload is a valid Bundle resource.
 		bundles.push(json);
 		patientSource.reset();
 		patientSource.loadBundles(bundles);
 		
 		// Ensure value sets, downloading any missing value sets
-		codeService.ensureValueSetsWithAPIKey(valueSets, umlsApiKey).then(() => {
+		codeService.ensureValueSetsInLibraryWithAPIKey(measureLib, true, umlsApiKey, true).then(() => {
 			// Value sets are loaded, so execute!
-			const executor = new cql.Executor(measureLib, codeService);
+			const executor = new cql.Executor(measureLib, codeService, parameters, msgListener);
 			const results = executor.exec(patientSource);
-			console.log(results);
-			res.end(JSON.stringify(results.patientResults));
+			res.end(JSON.stringify(results));
 		})
 		.catch( (err) => {
 			// There was an error!
+			console.log('In catch block following ensureValueSetsWithAPIKey()');
 			console.error('Error', err);
+			res.statusCode = 500;
+			res.setHeader('Content-Type', 'text/plain');
+			let returnBody = err.toString();
+			res.end(returnBody);
+			return;
 		});
 	}
 	else {
@@ -101,9 +135,144 @@ const server = http.createServer(async (req, res) => {
 	}
 });
 
+/// Given the ELM file (as a JSON object) of a measure, build an object where each
+/// property name is the local identifier of library included by the measure, and
+/// each property value is the corresponding file (as a JSON object). This method
+/// is called recursively on the included libraries so that the libraries included
+/// by those libraries are also added to the output object, as are the libraries
+/// included by those libraries, and so on.
+function getIncludedLibrariesObj(elmFile, librariesObj) {
+	// TO DO: This function does nothing with versions. Should it? Right now it
+	//   just assumes all the versions will line up.
+	if ((elmFile.library.includes == undefined) || (elmFile.library.includes.def == undefined)) {
+		return;
+	}
+
+	for (includeDefObj of elmFile.library.includes.def) {
+		// If there is not already a key for includeDefObj in librariesObj...
+		//  parse the ELM file (where path=elmPath and name=includeDefObj.path)
+		//  for the included library and set a property of librariesObj with
+		//  name=includeDefObj.localIdentifier, value=[parsed ELM file for that library]
+		if (librariesObj[includeDefObj.localIdentifier] == undefined) {
+			// Parse the ELM file for the current included library
+			// Assume that file path=(global)elmPath and name=includeDefObj.path
+			// TO DO: Not great to make this assumption. Consider re-thinking how
+			//   libraries get loaded.
+			let includedElmFile = JSON.parse(fs.readFileSync(elmPath +  includeDefObj.path + '.json'));
+			// Add the parsed file to the output object with key=localIdentifier
+			librariesObj[includeDefObj.localIdentifier] = includedElmFile;
+			// Call this method recursively on the included ELM file, passing it
+			//  the same inputIncludeObj.
+			getIncludedLibrariesObj(includedElmFile, librariesObj);
+		}
+	}
+}
+
+/// In case the measure being evaluated references valuesets that are not in VSAC,
+/// this method provides a mechanism to load codes from FHIR ValueSet resources 
+/// into the VSAC cache as though they had been downloaded from VSAC. 
+///
+/// This function will scan the "fhirterminology" folder in rootPath (TO DO - not
+/// a great way to do this) for JSON files containing either ValueSet or Bundle 
+/// resources. (In the case of a Bundle resource, the resources it contains will
+/// be iterated over and only ValueSet resources will be processed.) For each
+/// ValueSet, if it has an expansion.contains value, the codes from that are added
+/// to the cache. Otherwise, if the ValueSet has a compose.include value, the
+/// codes from that are added.
+///
+/// The VSAC cache identifies value sets by OID and version. When this function
+/// adds the contents of a ValueSet resource to the cache, it uses the "url"
+/// property of the resource as the OID, and the "version" property as the version,
+/// or "Latest" if that is not defined.
+///
+/// Note that the contents of a ValueSet resource will only be added to the cache
+/// if there is not already a value set with matching OID/URL and version. If
+/// the contents of a ValueSet change after it has been loaded, the cache file
+/// ([rootPath]\vsac_cache\valueset-db.json) will have to be deleted in order to
+/// re-load the ValueSet resource. (TO DO: Not a great way to do this. Re-think.)
+function addFhirToVsacCache() {
+	// If the FHIR terminology folder does not yet exist, create it and return.
+	if (!fs.existsSync(fhirTermPath)) {
+		fs.mkdirSync(fhirTermPath);
+		return;
+	}
+	
+	let vsacCacheObj = {};
+	// TO DO: Provide a way to skip loading the existing cache
+	// TO DO: Error handling - a parse error should just be skipped
+	if (fs.existsSync(vsacCachePathAndFilename)){
+		const vsacCacheObj = JSON.parse(fs.readFileSync(vsacCachePathAndFilename, 'utf8'));
+	}
+	
+	for (const filename of fs.readdirSync(fhirTermPath)) {
+		if (!filename.endsWith('.json')) {
+			continue;
+		}
+		const pathAndFilename = path.join(fhirTermPath, filename);
+		const fhirResource = JSON.parse(fs.readFileSync(pathAndFilename));
+		// TO DO: Validate that the file is valid FHIR
+		if (fhirResource.resourceType == 'Bundle') {
+			for (const entry of fhirResource.entry) {
+				if (entry.resource.resourceType != 'ValueSet') {
+					continue;
+				}
+				addFhirValueSetToVsacCache(entry.resource, vsacCacheObj);
+			}
+		}
+		else if (fhirResource.resourceType == 'ValueSet') {
+			addFhirValueSetToVsacCache(fhirResource, vsacCacheObj);
+		}
+	}
+	
+	let data = JSON.stringify(vsacCacheObj, null, 2);
+	fs.writeFileSync(vsacCachePathAndFilename, data, (err) => {console.error('Error', err); });
+}
+
+/// Helper function to addFhirToVsacCache()
+function addFhirValueSetToVsacCache(fhirValueSetResource, vsacCacheObj) {
+	let vsUrl = fhirValueSetResource.url;
+	let vsVersion = fhirValueSetResource.version;
+	if (vsVersion == undefined) {
+		vsVersion = 'Latest';
+	}
+	// If the VSAC cache already has this version of this ValueSet, return.
+	// TO DO: Provide a way to have the FHIR ValueSet override what is in the
+	//   VSAC cache, or merge into it.
+	if (vsacCacheObj[vsUrl] == undefined) {
+		vsacCacheObj[vsUrl] = {};
+	}
+	if (vsacCacheObj[vsUrl][vsVersion] != undefined) {
+		return;
+	}
+	
+	
+	let codesAry = [];
+	let codeSystem;
+	// If the ValueSet has an expansion, get the codes from that. Otherwise, if 
+	//  it has includes, use those.
+	if ((fhirValueSetResource.expansion != undefined) && (fhirValueSetResource.expansion.contains != undefined)) {
+		for (concept of fhirValueSetResource.expansion.contains) {
+			codesAry.push(new cql.Code(concept.code, concept.system, concept.version, concept.display));
+		}
+	}
+	else if ((fhirValueSetResource.compose!=undefined) && (fhirValueSetResource.compose.include!=undefined)) {
+		for (include of fhirValueSetResource.compose.include) {
+			codeSystem = include.system;
+			if (!Array.isArray(include.concept)) {
+				continue;
+			}
+			for (concept of include.concept) {
+				codesAry.push(new cql.Code(concept.code, codeSystem, vsVersion, concept.display));
+			}
+		}
+	}
+	vsacCacheObj[vsUrl][vsVersion] = {oid:vsUrl, version:vsVersion, codes:codesAry};
+}
 
 
 
+const hostname = '127.0.0.1';
+const port = 3000;
 server.listen(port, hostname, () => {
   console.log(`Server running at http://${hostname}:${port}/ \r\nUsing UMLS API key: ${umlsApiKey}`);
 });
