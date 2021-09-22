@@ -6,7 +6,7 @@ const cql = require('cql-execution');
 const cqlfhir = require('cql-exec-fhir');
 const cqlvsac = require('cql-exec-vsac');
 
-const debug = true;
+const debug = false;
 
 // TO DO: There is supposed to be a way to set this within the environment so it
 //        doesn't have to be passed as an argument to the script. Investigate and
@@ -69,6 +69,7 @@ const server = http.createServer(async (req, res) => {
 	
 	
 	// TO DO: Figure out a better way to do this
+	/*
 	const contextMedications = JSON.parse(fs.readFileSync('C:\\Users\\garza\\Desktop\\opioid-cds-r4\\MedicationRequest_example-rec-05-mme-greater-than-fifty-context.json', 'utf8'));
 	let contextMedsArr = [];
 	if (Array.isArray(contextMedications)) {
@@ -80,7 +81,7 @@ const server = http.createServer(async (req, res) => {
 	const parameters = {
 	  ContextPrescriptions: contextMedsArr
 	};
-	
+	*/
 	
 	
 	const urlAry = req.url.split('/');
@@ -102,17 +103,37 @@ const server = http.createServer(async (req, res) => {
 		// Load the bundle from the request body into the patientSource
 		const bundles = [];
 		const json = JSON.parse(data);
+		// prefetchBundle contains all the prefetched resource in a single Bundle.
+		// Get this from the request and load into the patientSource.
 		// TO DO: Validate that the request payload is a valid Bundle resource.
-		bundles.push(json);
+		bundles.push(json.prefetchBundle);
 		patientSource.reset();
 		patientSource.loadBundles(bundles);
+		// Get the (CDS Hooks) context from the request
+		// TO DO: To save time right now, only getting ContextPrescriptions from draftOrders
+		const draftOrders = json.context.draftOrders;
+		const entryArr = draftOrders.entry;
+		let contextMedsArr = [];
+		if (Array.isArray(entryArr)) {
+			entryArr.forEach(oneEntry => contextMedsArr.push(fhirWrapper.wrap(oneEntry.resource)));
+		}
+		const parameters = {
+		  ContextPrescriptions: contextMedsArr
+		};
+		
 		
 		// Ensure value sets, downloading any missing value sets
 		codeService.ensureValueSetsInLibraryWithAPIKey(measureLib, true, umlsApiKey, true).then(() => {
 			// Value sets are loaded, so execute!
 			const executor = new cql.Executor(measureLib, codeService, parameters, msgListener);
 			const results = executor.exec(patientSource);
-			res.end(JSON.stringify(results));
+			if (debug) {
+				res.end(JSON.stringify(results));
+			}
+			else
+			{
+				res.end(JSON.stringify(results.patientResults));
+			}
 		})
 		.catch( (err) => {
 			// There was an error!
