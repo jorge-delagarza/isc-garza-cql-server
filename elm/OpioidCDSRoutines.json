@@ -1,0 +1,1063 @@
+{
+   "library" : {
+      "annotation" : [ {
+         "translatorOptions" : "",
+         "type" : "CqlToElmInfo"
+      } ],
+      "identifier" : {
+         "id" : "OpioidCDSRoutines",
+         "version" : "0.1.1"
+      },
+      "schemaIdentifier" : {
+         "id" : "urn:hl7-org:elm",
+         "version" : "r1"
+      },
+      "usings" : {
+         "def" : [ {
+            "localIdentifier" : "System",
+            "uri" : "urn:hl7-org:elm-types:r1"
+         }, {
+            "localIdentifier" : "FHIR",
+            "uri" : "http://hl7.org/fhir",
+            "version" : "4.0.1"
+         } ]
+      },
+      "includes" : {
+         "def" : [ {
+            "localIdentifier" : "FHIRHelpers",
+            "path" : "FHIRHelpers",
+            "version" : "4.0.1"
+         }, {
+            "localIdentifier" : "Common",
+            "path" : "OpioidCDSCommon",
+            "version" : "0.1.1"
+         }, {
+            "localIdentifier" : "Config",
+            "path" : "OpioidCDSCommonConfig",
+            "version" : "0.1.1"
+         } ]
+      },
+      "contexts" : {
+         "def" : [ {
+            "name" : "Patient"
+         } ]
+      },
+      "statements" : {
+         "def" : [ {
+            "name" : "Patient",
+            "context" : "Patient",
+            "expression" : {
+               "type" : "SingletonFrom",
+               "operand" : {
+                  "dataType" : "{http://hl7.org/fhir}Patient",
+                  "templateId" : "http://hl7.org/fhir/StructureDefinition/Patient",
+                  "type" : "Retrieve"
+               }
+            }
+         }, {
+            "name" : "Palliative Care Lookback Period",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "lowClosed" : true,
+               "highClosed" : true,
+               "type" : "Interval",
+               "low" : {
+                  "type" : "Subtract",
+                  "operand" : [ {
+                     "type" : "Today"
+                  }, {
+                     "value" : 90,
+                     "unit" : "days",
+                     "type" : "Quantity"
+                  } ]
+               },
+               "high" : {
+                  "type" : "Today"
+               }
+            }
+         }, {
+            "name" : "Conditions Indicating End Of Life Present",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "Exists",
+               "operand" : {
+                  "type" : "Query",
+                  "source" : [ {
+                     "alias" : "LLEC",
+                     "expression" : {
+                        "name" : "US Core-Categorized Conditions",
+                        "libraryName" : "Common",
+                        "type" : "ExpressionRef"
+                     }
+                  } ],
+                  "relationship" : [ ],
+                  "where" : {
+                     "type" : "And",
+                     "operand" : [ {
+                        "type" : "InValueSet",
+                        "code" : {
+                           "name" : "ToConcept",
+                           "libraryName" : "FHIRHelpers",
+                           "type" : "FunctionRef",
+                           "operand" : [ {
+                              "path" : "code",
+                              "scope" : "LLEC",
+                              "type" : "Property"
+                           } ]
+                        },
+                        "valueset" : {
+                           "name" : "Limited life expectancy conditions",
+                           "libraryName" : "Common"
+                        }
+                     }, {
+                        "type" : "InValueSet",
+                        "code" : {
+                           "name" : "ToConcept",
+                           "libraryName" : "FHIRHelpers",
+                           "type" : "FunctionRef",
+                           "operand" : [ {
+                              "path" : "clinicalStatus",
+                              "scope" : "LLEC",
+                              "type" : "Property"
+                           } ]
+                        },
+                        "valueset" : {
+                           "name" : "Active Condition",
+                           "libraryName" : "Common"
+                        }
+                     } ]
+                  }
+               }
+            }
+         }, {
+            "name" : "Order For Palliative Care In Past 90 Days",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "Exists",
+               "operand" : {
+                  "type" : "Query",
+                  "source" : [ {
+                     "alias" : "SR",
+                     "expression" : {
+                        "dataType" : "{http://hl7.org/fhir}ServiceRequest",
+                        "templateId" : "http://hl7.org/fhir/StructureDefinition/ServiceRequest",
+                        "codeProperty" : "code",
+                        "codeComparator" : "in",
+                        "type" : "Retrieve",
+                        "codes" : {
+                           "name" : "Therapies indicating end of life care",
+                           "libraryName" : "Common",
+                           "type" : "ValueSetRef"
+                        }
+                     }
+                  } ],
+                  "relationship" : [ ],
+                  "where" : {
+                     "type" : "And",
+                     "operand" : [ {
+                        "type" : "And",
+                        "operand" : [ {
+                           "type" : "In",
+                           "operand" : [ {
+                              "name" : "ToString",
+                              "libraryName" : "FHIRHelpers",
+                              "type" : "FunctionRef",
+                              "operand" : [ {
+                                 "path" : "status",
+                                 "scope" : "SR",
+                                 "type" : "Property"
+                              } ]
+                           }, {
+                              "type" : "List",
+                              "element" : [ {
+                                 "valueType" : "{urn:hl7-org:elm-types:r1}String",
+                                 "value" : "active",
+                                 "type" : "Literal"
+                              }, {
+                                 "valueType" : "{urn:hl7-org:elm-types:r1}String",
+                                 "value" : "completed",
+                                 "type" : "Literal"
+                              } ]
+                           } ]
+                        }, {
+                           "type" : "Not",
+                           "operand" : {
+                              "type" : "Equal",
+                              "operand" : [ {
+                                 "path" : "intent",
+                                 "scope" : "SR",
+                                 "type" : "Property"
+                              }, {
+                                 "asType" : "{http://hl7.org/fhir}ServiceRequestIntent",
+                                 "type" : "As",
+                                 "operand" : {
+                                    "type" : "Null"
+                                 }
+                              } ]
+                           }
+                        } ]
+                     }, {
+                        "precision" : "Day",
+                        "type" : "In",
+                        "operand" : [ {
+                           "name" : "ToDateTime",
+                           "libraryName" : "FHIRHelpers",
+                           "type" : "FunctionRef",
+                           "operand" : [ {
+                              "path" : "authoredOn",
+                              "scope" : "SR",
+                              "type" : "Property"
+                           } ]
+                        }, {
+                           "type" : "Interval",
+                           "low" : {
+                              "type" : "ToDateTime",
+                              "operand" : {
+                                 "path" : "low",
+                                 "type" : "Property",
+                                 "source" : {
+                                    "name" : "Palliative Care Lookback Period",
+                                    "type" : "ExpressionRef"
+                                 }
+                              }
+                           },
+                           "lowClosedExpression" : {
+                              "path" : "lowClosed",
+                              "type" : "Property",
+                              "source" : {
+                                 "name" : "Palliative Care Lookback Period",
+                                 "type" : "ExpressionRef"
+                              }
+                           },
+                           "high" : {
+                              "type" : "ToDateTime",
+                              "operand" : {
+                                 "path" : "high",
+                                 "type" : "Property",
+                                 "source" : {
+                                    "name" : "Palliative Care Lookback Period",
+                                    "type" : "ExpressionRef"
+                                 }
+                              }
+                           },
+                           "highClosedExpression" : {
+                              "path" : "highClosed",
+                              "type" : "Property",
+                              "source" : {
+                                 "name" : "Palliative Care Lookback Period",
+                                 "type" : "ExpressionRef"
+                              }
+                           }
+                        } ]
+                     } ]
+                  }
+               }
+            }
+         }, {
+            "name" : "Encounter Period",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "lowClosed" : true,
+               "highClosed" : false,
+               "type" : "Interval",
+               "low" : {
+                  "type" : "Subtract",
+                  "operand" : [ {
+                     "type" : "Now"
+                  }, {
+                     "value" : 12,
+                     "unit" : "months",
+                     "type" : "Quantity"
+                  } ]
+               },
+               "high" : {
+                  "type" : "Now"
+               }
+            }
+         }, {
+            "name" : "Active Cancer Diagnoses",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "Query",
+               "source" : [ {
+                  "alias" : "C",
+                  "expression" : {
+                     "name" : "US Core-Categorized Conditions",
+                     "libraryName" : "Common",
+                     "type" : "ExpressionRef"
+                  }
+               } ],
+               "relationship" : [ ],
+               "where" : {
+                  "type" : "InValueSet",
+                  "code" : {
+                     "name" : "ToConcept",
+                     "libraryName" : "FHIRHelpers",
+                     "type" : "FunctionRef",
+                     "operand" : [ {
+                        "path" : "code",
+                        "scope" : "C",
+                        "type" : "Property"
+                     } ]
+                  },
+                  "valueset" : {
+                     "name" : "CDC malignant cancer conditions",
+                     "libraryName" : "Common"
+                  }
+               }
+            }
+         }, {
+            "name" : "Oncologist Practitioner Roles",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "Query",
+               "source" : [ {
+                  "alias" : "PractitionerRole",
+                  "expression" : {
+                     "dataType" : "{http://hl7.org/fhir}PractitionerRole",
+                     "templateId" : "http://hl7.org/fhir/StructureDefinition/PractitionerRole",
+                     "codeProperty" : "specialty",
+                     "codeComparator" : "in",
+                     "type" : "Retrieve",
+                     "codes" : {
+                        "name" : "Oncology specialty designations (NUCC)",
+                        "libraryName" : "Common",
+                        "type" : "ValueSetRef"
+                     }
+                  }
+               } ],
+               "relationship" : [ ]
+            }
+         }, {
+            "name" : "Encounters with Cancer Diagnosis During Encounter Period",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "Query",
+               "source" : [ {
+                  "alias" : "Encounter",
+                  "expression" : {
+                     "dataType" : "{http://hl7.org/fhir}Encounter",
+                     "templateId" : "http://hl7.org/fhir/StructureDefinition/Encounter",
+                     "codeProperty" : "type",
+                     "codeComparator" : "in",
+                     "type" : "Retrieve",
+                     "codes" : {
+                        "name" : "Office Visit",
+                        "libraryName" : "Common",
+                        "type" : "ValueSetRef"
+                     }
+                  }
+               } ],
+               "relationship" : [ ],
+               "where" : {
+                  "type" : "And",
+                  "operand" : [ {
+                     "precision" : "Day",
+                     "type" : "In",
+                     "operand" : [ {
+                        "type" : "ToDateTime",
+                        "operand" : {
+                           "type" : "DateFrom",
+                           "operand" : {
+                              "path" : "value",
+                              "type" : "Property",
+                              "source" : {
+                                 "path" : "start",
+                                 "type" : "Property",
+                                 "source" : {
+                                    "path" : "period",
+                                    "scope" : "Encounter",
+                                    "type" : "Property"
+                                 }
+                              }
+                           }
+                        }
+                     }, {
+                        "name" : "Encounter Period",
+                        "type" : "ExpressionRef"
+                     } ]
+                  }, {
+                     "type" : "Or",
+                     "operand" : [ {
+                        "type" : "Exists",
+                        "operand" : {
+                           "type" : "Query",
+                           "source" : [ {
+                              "alias" : "EncounterDiagnosis",
+                              "expression" : {
+                                 "path" : "diagnosis",
+                                 "scope" : "Encounter",
+                                 "type" : "Property"
+                              }
+                           } ],
+                           "relationship" : [ {
+                              "alias" : "CancerDiagnosis",
+                              "type" : "With",
+                              "expression" : {
+                                 "name" : "Active Cancer Diagnoses",
+                                 "type" : "ExpressionRef"
+                              },
+                              "suchThat" : {
+                                 "type" : "EndsWith",
+                                 "operand" : [ {
+                                    "name" : "ToString",
+                                    "libraryName" : "FHIRHelpers",
+                                    "type" : "FunctionRef",
+                                    "operand" : [ {
+                                       "path" : "reference",
+                                       "type" : "Property",
+                                       "source" : {
+                                          "path" : "condition",
+                                          "scope" : "EncounterDiagnosis",
+                                          "type" : "Property"
+                                       }
+                                    } ]
+                                 }, {
+                                    "name" : "ToString",
+                                    "libraryName" : "FHIRHelpers",
+                                    "type" : "FunctionRef",
+                                    "operand" : [ {
+                                       "path" : "id",
+                                       "scope" : "CancerDiagnosis",
+                                       "type" : "Property"
+                                    } ]
+                                 } ]
+                              }
+                           } ]
+                        }
+                     }, {
+                        "type" : "Exists",
+                        "operand" : {
+                           "type" : "Query",
+                           "source" : [ {
+                              "alias" : "EncounterParticipant",
+                              "expression" : {
+                                 "path" : "participant",
+                                 "scope" : "Encounter",
+                                 "type" : "Property"
+                              }
+                           } ],
+                           "relationship" : [ ],
+                           "where" : {
+                              "type" : "Or",
+                              "operand" : [ {
+                                 "type" : "AnyInValueSet",
+                                 "codes" : {
+                                    "type" : "Query",
+                                    "source" : [ {
+                                       "alias" : "X",
+                                       "expression" : {
+                                          "path" : "type",
+                                          "scope" : "EncounterParticipant",
+                                          "type" : "Property"
+                                       }
+                                    } ],
+                                    "return" : {
+                                       "distinct" : false,
+                                       "expression" : {
+                                          "name" : "ToConcept",
+                                          "libraryName" : "FHIRHelpers",
+                                          "type" : "FunctionRef",
+                                          "operand" : [ {
+                                             "name" : "X",
+                                             "type" : "AliasRef"
+                                          } ]
+                                       }
+                                    }
+                                 },
+                                 "valueset" : {
+                                    "name" : "Oncology specialty designations (NUCC)",
+                                    "libraryName" : "Common"
+                                 }
+                              }, {
+                                 "type" : "If",
+                                 "condition" : {
+                                    "name" : "Active Cancer Treatment PractitionerRole Specialty Is Enabled",
+                                    "libraryName" : "Config",
+                                    "type" : "ExpressionRef"
+                                 },
+                                 "then" : {
+                                    "type" : "Exists",
+                                    "operand" : {
+                                       "type" : "Query",
+                                       "source" : [ {
+                                          "alias" : "PractitionerRole",
+                                          "expression" : {
+                                             "name" : "Oncologist Practitioner Roles",
+                                             "type" : "ExpressionRef"
+                                          }
+                                       } ],
+                                       "relationship" : [ ],
+                                       "where" : {
+                                          "type" : "EndsWith",
+                                          "operand" : [ {
+                                             "name" : "ToString",
+                                             "libraryName" : "FHIRHelpers",
+                                             "type" : "FunctionRef",
+                                             "operand" : [ {
+                                                "path" : "reference",
+                                                "type" : "Property",
+                                                "source" : {
+                                                   "path" : "individual",
+                                                   "scope" : "EncounterParticipant",
+                                                   "type" : "Property"
+                                                }
+                                             } ]
+                                          }, {
+                                             "name" : "ToString",
+                                             "libraryName" : "FHIRHelpers",
+                                             "type" : "FunctionRef",
+                                             "operand" : [ {
+                                                "path" : "id",
+                                                "scope" : "PractitionerRole",
+                                                "type" : "Property"
+                                             } ]
+                                          } ]
+                                       }
+                                    }
+                                 },
+                                 "else" : {
+                                    "valueType" : "{urn:hl7-org:elm-types:r1}Boolean",
+                                    "value" : "false",
+                                    "type" : "Literal"
+                                 }
+                              } ]
+                           }
+                        }
+                     } ]
+                  } ]
+               }
+            }
+         }, {
+            "name" : "Number of Enounters with Cancer Diagnosis During Encounter Period",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "Count",
+               "source" : {
+                  "name" : "Encounters with Cancer Diagnosis During Encounter Period",
+                  "type" : "ExpressionRef"
+               }
+            }
+         }, {
+            "name" : "Has Two or More Encounters with Cancer Diagnosis During Encounter Period",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "GreaterOrEqual",
+               "operand" : [ {
+                  "name" : "Number of Enounters with Cancer Diagnosis During Encounter Period",
+                  "type" : "ExpressionRef"
+               }, {
+                  "valueType" : "{urn:hl7-org:elm-types:r1}Integer",
+                  "value" : "2",
+                  "type" : "Literal"
+               } ]
+            }
+         }, {
+            "name" : "Is Active Cancer Treatment?",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "If",
+               "condition" : {
+                  "name" : "Active Cancer Treatment Encounters Condition Is Enabled",
+                  "libraryName" : "Config",
+                  "type" : "ExpressionRef"
+               },
+               "then" : {
+                  "name" : "Has Two or More Encounters with Cancer Diagnosis During Encounter Period",
+                  "type" : "ExpressionRef"
+               },
+               "else" : {
+                  "valueType" : "{urn:hl7-org:elm-types:r1}Boolean",
+                  "value" : "false",
+                  "type" : "Literal"
+               }
+            }
+         }, {
+            "name" : "Conditions Including Cancer To Exclude Opioid Management Indicating End-Stage Disease Present",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "If",
+               "condition" : {
+                  "name" : "End-Stage Disease Criteria Enabled",
+                  "libraryName" : "Config",
+                  "type" : "ExpressionRef"
+               },
+               "then" : {
+                  "type" : "Exists",
+                  "operand" : {
+                     "type" : "Query",
+                     "source" : [ {
+                        "alias" : "EOLC",
+                        "expression" : {
+                           "name" : "US Core-Categorized Conditions",
+                           "libraryName" : "Common",
+                           "type" : "ExpressionRef"
+                        }
+                     } ],
+                     "relationship" : [ ],
+                     "where" : {
+                        "type" : "And",
+                        "operand" : [ {
+                           "type" : "InValueSet",
+                           "code" : {
+                              "name" : "ToConcept",
+                              "libraryName" : "FHIRHelpers",
+                              "type" : "FunctionRef",
+                              "operand" : [ {
+                                 "path" : "code",
+                                 "scope" : "EOLC",
+                                 "type" : "Property"
+                              } ]
+                           },
+                           "valueset" : {
+                              "name" : "Conditions likely terminal for opioid prescribing",
+                              "libraryName" : "Common"
+                           }
+                        }, {
+                           "type" : "InValueSet",
+                           "code" : {
+                              "name" : "ToConcept",
+                              "libraryName" : "FHIRHelpers",
+                              "type" : "FunctionRef",
+                              "operand" : [ {
+                                 "path" : "clinicalStatus",
+                                 "scope" : "EOLC",
+                                 "type" : "Property"
+                              } ]
+                           },
+                           "valueset" : {
+                              "name" : "Active Condition",
+                              "libraryName" : "Common"
+                           }
+                        } ]
+                     }
+                  }
+               },
+               "else" : {
+                  "valueType" : "{urn:hl7-org:elm-types:r1}Boolean",
+                  "value" : "false",
+                  "type" : "Literal"
+               }
+            }
+         }, {
+            "name" : "Is Opioid Review Useful?",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "And",
+               "operand" : [ {
+                  "type" : "And",
+                  "operand" : [ {
+                     "type" : "And",
+                     "operand" : [ {
+                        "type" : "Not",
+                        "operand" : {
+                           "name" : "Conditions Indicating End Of Life Present",
+                           "type" : "ExpressionRef"
+                        }
+                     }, {
+                        "type" : "Not",
+                        "operand" : {
+                           "name" : "Order For Palliative Care In Past 90 Days",
+                           "type" : "ExpressionRef"
+                        }
+                     } ]
+                  }, {
+                     "type" : "Not",
+                     "operand" : {
+                        "name" : "Is Active Cancer Treatment?",
+                        "type" : "ExpressionRef"
+                     }
+                  } ]
+               }, {
+                  "type" : "Not",
+                  "operand" : {
+                     "name" : "Conditions Including Cancer To Exclude Opioid Management Indicating End-Stage Disease Present",
+                     "type" : "ExpressionRef"
+                  }
+               } ]
+            }
+         }, {
+            "name" : "Prescription/Dispense Inclusion Period",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "lowClosed" : true,
+               "highClosed" : true,
+               "type" : "Interval",
+               "low" : {
+                  "type" : "Subtract",
+                  "operand" : [ {
+                     "type" : "Now"
+                  }, {
+                     "value" : 90,
+                     "unit" : "days",
+                     "type" : "Quantity"
+                  } ]
+               },
+               "high" : {
+                  "type" : "Subtract",
+                  "operand" : [ {
+                     "type" : "Now"
+                  }, {
+                     "value" : 24,
+                     "unit" : "hours",
+                     "type" : "Quantity"
+                  } ]
+               }
+            }
+         }, {
+            "name" : "Report Inclusion Period",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "lowClosed" : true,
+               "highClosed" : false,
+               "type" : "Interval",
+               "low" : {
+                  "type" : "Subtract",
+                  "operand" : [ {
+                     "type" : "Now"
+                  }, {
+                     "value" : 90,
+                     "unit" : "days",
+                     "type" : "Quantity"
+                  } ]
+               },
+               "high" : {
+                  "type" : "Subtract",
+                  "operand" : [ {
+                     "type" : "Now"
+                  }, {
+                     "value" : 24,
+                     "unit" : "hours",
+                     "type" : "Quantity"
+                  } ]
+               }
+            }
+         }, {
+            "name" : "Opioid RX with Ambulatory Abuse Potential In Past 90 Days",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "Query",
+               "source" : [ {
+                  "alias" : "Rx",
+                  "expression" : {
+                     "name" : "Active Ambulatory Opioid Rx",
+                     "libraryName" : "Common",
+                     "type" : "ExpressionRef"
+                  }
+               } ],
+               "relationship" : [ ],
+               "where" : {
+                  "precision" : "Day",
+                  "type" : "In",
+                  "operand" : [ {
+                     "name" : "ToDateTime",
+                     "libraryName" : "FHIRHelpers",
+                     "type" : "FunctionRef",
+                     "operand" : [ {
+                        "path" : "authoredOn",
+                        "scope" : "Rx",
+                        "type" : "Property"
+                     } ]
+                  }, {
+                     "name" : "Prescription/Dispense Inclusion Period",
+                     "type" : "ExpressionRef"
+                  } ]
+               }
+            }
+         }, {
+            "name" : "Has Opioid RX with Ambulatory Abuse Potential In Past 90 Days",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "If",
+               "condition" : {
+                  "name" : "Opioid Naive Prescription Condition Is Enabled",
+                  "libraryName" : "Config",
+                  "type" : "ExpressionRef"
+               },
+               "then" : {
+                  "type" : "Exists",
+                  "operand" : {
+                     "name" : "Opioid RX with Ambulatory Abuse Potential In Past 90 Days",
+                     "type" : "ExpressionRef"
+                  }
+               },
+               "else" : {
+                  "valueType" : "{urn:hl7-org:elm-types:r1}Boolean",
+                  "value" : "false",
+                  "type" : "Literal"
+               }
+            }
+         }, {
+            "name" : "Has Opioid Dispense with Ambulatory Abuse Potential In Past 90 Days",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "If",
+               "condition" : {
+                  "name" : "Opioid Naive Prescription Condition Is Enabled",
+                  "libraryName" : "Config",
+                  "type" : "ExpressionRef"
+               },
+               "then" : {
+                  "type" : "Exists",
+                  "operand" : {
+                     "name" : "Opioid RX with Ambulatory Abuse Potential In Past 90 Days",
+                     "type" : "ExpressionRef"
+                  }
+               },
+               "else" : {
+                  "valueType" : "{urn:hl7-org:elm-types:r1}Boolean",
+                  "value" : "false",
+                  "type" : "Literal"
+               }
+            }
+         }, {
+            "name" : "Is Opioid Naive?",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "And",
+               "operand" : [ {
+                  "type" : "Not",
+                  "operand" : {
+                     "name" : "Has Opioid RX with Ambulatory Abuse Potential In Past 90 Days",
+                     "type" : "ExpressionRef"
+                  }
+               }, {
+                  "type" : "Not",
+                  "operand" : {
+                     "name" : "Has Opioid Dispense with Ambulatory Abuse Potential In Past 90 Days",
+                     "type" : "ExpressionRef"
+                  }
+               } ]
+            }
+         }, {
+            "name" : "Opioid Dispense with Ambulatory Abuse Potential In Past 90 Days",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "expression" : {
+               "type" : "Query",
+               "source" : [ {
+                  "alias" : "OpioidDispense",
+                  "expression" : {
+                     "dataType" : "{http://hl7.org/fhir}MedicationDispense",
+                     "templateId" : "http://hl7.org/fhir/StructureDefinition/MedicationDispense",
+                     "codeProperty" : "medication",
+                     "codeComparator" : "in",
+                     "type" : "Retrieve",
+                     "codes" : {
+                        "name" : "Opioid analgesics with ambulatory misuse potential",
+                        "libraryName" : "Common",
+                        "type" : "ValueSetRef"
+                     }
+                  }
+               } ],
+               "relationship" : [ ],
+               "where" : {
+                  "type" : "And",
+                  "operand" : [ {
+                     "precision" : "Day",
+                     "type" : "In",
+                     "operand" : [ {
+                        "name" : "ToDateTime",
+                        "libraryName" : "FHIRHelpers",
+                        "type" : "FunctionRef",
+                        "operand" : [ {
+                           "path" : "whenHandedOver",
+                           "scope" : "OpioidDispense",
+                           "type" : "Property"
+                        } ]
+                     }, {
+                        "name" : "Prescription/Dispense Inclusion Period",
+                        "type" : "ExpressionRef"
+                     } ]
+                  }, {
+                     "type" : "Equal",
+                     "operand" : [ {
+                        "name" : "ToString",
+                        "libraryName" : "FHIRHelpers",
+                        "type" : "FunctionRef",
+                        "operand" : [ {
+                           "path" : "status",
+                           "scope" : "OpioidDispense",
+                           "type" : "Property"
+                        } ]
+                     }, {
+                        "valueType" : "{urn:hl7-org:elm-types:r1}String",
+                        "value" : "completed",
+                        "type" : "Literal"
+                     } ]
+                  } ]
+               }
+            }
+         }, {
+            "name" : "Is Chronic Pain Prescription?",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "type" : "FunctionDef",
+            "expression" : {
+               "type" : "And",
+               "operand" : [ {
+                  "type" : "And",
+                  "operand" : [ {
+                     "type" : "Not",
+                     "operand" : {
+                        "type" : "IsNull",
+                        "operand" : {
+                           "path" : "dispenseRequest",
+                           "type" : "Property",
+                           "source" : {
+                              "name" : "prescription",
+                              "type" : "OperandRef"
+                           }
+                        }
+                     }
+                  }, {
+                     "type" : "Not",
+                     "operand" : {
+                        "type" : "IsNull",
+                        "operand" : {
+                           "path" : "expectedSupplyDuration",
+                           "type" : "Property",
+                           "source" : {
+                              "path" : "dispenseRequest",
+                              "type" : "Property",
+                              "source" : {
+                                 "name" : "prescription",
+                                 "type" : "OperandRef"
+                              }
+                           }
+                        }
+                     }
+                  } ]
+               }, {
+                  "type" : "GreaterOrEqual",
+                  "operand" : [ {
+                     "name" : "GetDurationInDays",
+                     "libraryName" : "Common",
+                     "type" : "FunctionRef",
+                     "operand" : [ {
+                        "path" : "expectedSupplyDuration",
+                        "type" : "Property",
+                        "source" : {
+                           "path" : "dispenseRequest",
+                           "type" : "Property",
+                           "source" : {
+                              "name" : "prescription",
+                              "type" : "OperandRef"
+                           }
+                        }
+                     } ]
+                  }, {
+                     "type" : "ToDecimal",
+                     "operand" : {
+                        "valueType" : "{urn:hl7-org:elm-types:r1}Integer",
+                        "value" : "28",
+                        "type" : "Literal"
+                     }
+                  } ]
+               } ]
+            },
+            "operand" : [ {
+               "name" : "prescription",
+               "operandTypeSpecifier" : {
+                  "name" : "{http://hl7.org/fhir}MedicationRequest",
+                  "type" : "NamedTypeSpecifier"
+               }
+            } ]
+         }, {
+            "name" : "Is Acute Pain Prescription?",
+            "context" : "Patient",
+            "accessLevel" : "Public",
+            "type" : "FunctionDef",
+            "expression" : {
+               "type" : "And",
+               "operand" : [ {
+                  "type" : "And",
+                  "operand" : [ {
+                     "type" : "Not",
+                     "operand" : {
+                        "type" : "IsNull",
+                        "operand" : {
+                           "path" : "dispenseRequest",
+                           "type" : "Property",
+                           "source" : {
+                              "name" : "prescription",
+                              "type" : "OperandRef"
+                           }
+                        }
+                     }
+                  }, {
+                     "type" : "Not",
+                     "operand" : {
+                        "type" : "IsNull",
+                        "operand" : {
+                           "path" : "expectedSupplyDuration",
+                           "type" : "Property",
+                           "source" : {
+                              "path" : "dispenseRequest",
+                              "type" : "Property",
+                              "source" : {
+                                 "name" : "prescription",
+                                 "type" : "OperandRef"
+                              }
+                           }
+                        }
+                     }
+                  } ]
+               }, {
+                  "type" : "Less",
+                  "operand" : [ {
+                     "name" : "GetDurationInDays",
+                     "libraryName" : "Common",
+                     "type" : "FunctionRef",
+                     "operand" : [ {
+                        "path" : "expectedSupplyDuration",
+                        "type" : "Property",
+                        "source" : {
+                           "path" : "dispenseRequest",
+                           "type" : "Property",
+                           "source" : {
+                              "name" : "prescription",
+                              "type" : "OperandRef"
+                           }
+                        }
+                     } ]
+                  }, {
+                     "type" : "ToDecimal",
+                     "operand" : {
+                        "valueType" : "{urn:hl7-org:elm-types:r1}Integer",
+                        "value" : "28",
+                        "type" : "Literal"
+                     }
+                  } ]
+               } ]
+            },
+            "operand" : [ {
+               "name" : "prescription",
+               "operandTypeSpecifier" : {
+                  "name" : "{http://hl7.org/fhir}MedicationRequest",
+                  "type" : "NamedTypeSpecifier"
+               }
+            } ]
+         } ]
+      }
+   }
+}
+

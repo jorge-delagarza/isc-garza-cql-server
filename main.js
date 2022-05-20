@@ -1,12 +1,15 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const url = require('url');
 
 const cql = require('cql-execution');
 const cqlfhir = require('cql-exec-fhir');
 const cqlvsac = require('cql-exec-vsac');
 
+// TO DO: This should come from a request parameter
 const debug = false;
+var debugRequest;
 
 // TO DO: There is supposed to be a way to set this within the environment so it
 //        doesn't have to be passed as an argument to the script. Investigate and
@@ -24,9 +27,9 @@ if ((umlsApiKey==undefined)||(umlsApiKey==null)) {
 //      the request URL.
 const version = 'r4';
 
-// TO DO: Should not use hardcoded paths
-const rootPath = 'C:\\Users\\garza\\Desktop\\opioid-cds-r4\\';
-const elmPath = rootPath + 'elm\\rec5redux\\';
+// Root path is the project repo directory, e.g., C:\Users\<user>\Documents\GitHub\isc-garza-cql-server
+const rootPath = '.\\';
+const elmPath = rootPath + 'elm\\';
 const fhirTermPath = rootPath + 'fhirterminology\\';
 const vsacCachePath = rootPath + 'vsac_cache\\';
 const vsacCachePathAndFilename = vsacCachePath + 'valueset-db.json';
@@ -59,32 +62,20 @@ const server = http.createServer(async (req, res) => {
 		data += chunk;
 	}
 
-	if (debug) {
+	const parsedUrl = url.parse(req.url, true);
+	const queryObj = parsedUrl.query
+	debugRequest = (queryObj.debug == 'true');
+	const urlPath = parsedUrl.pathname
+	
+	if (debugRequest) {
 		console.log('\r\nRequest received:')
 		console.log('\tMethod: ' + req.method);
 		console.log('\tURL: ' + req.url);
 		console.log('\tHeaders: ' + JSON.stringify(req.headers));
 		console.log(`\tBody: ${data}\r\n`);
 	}
-	
-	
-	// TO DO: Figure out a better way to do this
-	/*
-	const contextMedications = JSON.parse(fs.readFileSync('C:\\Users\\garza\\Desktop\\opioid-cds-r4\\MedicationRequest_example-rec-05-mme-greater-than-fifty-context.json', 'utf8'));
-	let contextMedsArr = [];
-	if (Array.isArray(contextMedications)) {
-		contextMedications.forEach(oneMed => contextMedsArr.push(fhirWrapper.wrap(oneMed)));
-	}
-	else {
-		contextMedsArr.push(fhirWrapper.wrap(contextMedications));
-	}
-	const parameters = {
-	  ContextPrescriptions: contextMedsArr
-	};
-	*/
-	
-	
-	const urlAry = req.url.split('/');
+
+	const urlAry = urlPath.split('/');
 	if (urlAry[1] == 'measure') {
 		const measure = urlAry[2];
 		// Parse the ELM file for the measure into an object.
@@ -127,12 +118,13 @@ const server = http.createServer(async (req, res) => {
 			// Value sets are loaded, so execute!
 			const executor = new cql.Executor(measureLib, codeService, parameters, msgListener);
 			const results = executor.exec(patientSource);
-			if (debug) {
+			if (debugRequest) {
 				res.end(JSON.stringify(results));
 			}
 			else
 			{
-				res.end(JSON.stringify(results.patientResults));
+				var returnResults = {patientResults: results.patientResults}
+				res.end(JSON.stringify(returnResults));
 			}
 		})
 		.catch( (err) => {
@@ -173,15 +165,22 @@ function getIncludedLibrariesObj(elmFile, librariesObj) {
 		// If there is not already a key for includeDefObj in librariesObj...
 		//  parse the ELM file (where path=elmPath and name=includeDefObj.path)
 		//  for the included library and set a property of librariesObj with
-		//  name=includeDefObj.localIdentifier, value=[parsed ELM file for that library]
-		if (librariesObj[includeDefObj.localIdentifier] == undefined) {
+		//  name=includeDefObj.path, value=[parsed ELM file for that library]
+		// NOTE: A previous version of this code used includeFedObj.localidentifier
+		//  instead of includeDefObj.path. This would break sometimes because
+		//  different measures can be referred to with the same local identifier.
+		//  For example, in OpioidCDSCommon.cql, we have:
+		//    include OMTKLogicMK2020 version '0.1.1' called OMTKLogic
+		//  In the parsed ELM, the localIdentifier value of this include is "OMTKLogic" - 
+		//  However there is also a CQL called "OMTKLogic".
+		if (librariesObj[includeDefObj.path] == undefined) {
 			// Parse the ELM file for the current included library
 			// Assume that file path=(global)elmPath and name=includeDefObj.path
 			// TO DO: Not great to make this assumption. Consider re-thinking how
 			//   libraries get loaded.
 			let includedElmFile = JSON.parse(fs.readFileSync(elmPath +  includeDefObj.path + '.json'));
 			// Add the parsed file to the output object with key=localIdentifier
-			librariesObj[includeDefObj.localIdentifier] = includedElmFile;
+			librariesObj[includeDefObj.path] = includedElmFile;
 			// Call this method recursively on the included ELM file, passing it
 			//  the same inputIncludeObj.
 			getIncludedLibrariesObj(includedElmFile, librariesObj);
@@ -218,11 +217,11 @@ function addFhirToVsacCache() {
 		return;
 	}
 	
-	let vsacCacheObj = {};
+	var vsacCacheObj = {};
 	// TO DO: Provide a way to skip loading the existing cache
 	// TO DO: Error handling - a parse error should just be skipped
 	if (fs.existsSync(vsacCachePathAndFilename)){
-		const vsacCacheObj = JSON.parse(fs.readFileSync(vsacCachePathAndFilename, 'utf8'));
+		vsacCacheObj = JSON.parse(fs.readFileSync(vsacCachePathAndFilename, 'utf8'));
 	}
 	
 	for (const filename of fs.readdirSync(fhirTermPath)) {
